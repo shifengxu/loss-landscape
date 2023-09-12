@@ -38,6 +38,10 @@ models = {
 }
 
 def load(model_name, model_file=None, data_parallel=False):
+    if model_name == 'diffusion_model':
+        # todo
+        pass
+
     net = models[model_name]()
     if data_parallel: # the model is saved in data paralle mode
         net = torch.nn.DataParallel(net)

@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import time
 from torch.autograd.variable import Variable
 
-def eval_loss(net, criterion, loader, use_cuda=False):
+def eval_loss(net, criterion, loader, device=None):
     """
     Evaluate the loss value for a given 'net' on the dataset provided by the loader.
 
@@ -17,7 +17,7 @@ def eval_loss(net, criterion, loader, use_cuda=False):
         net: the neural net model
         criterion: loss function
         loader: dataloader
-        use_cuda: use cuda or not
+        device: GPU device or None
     Returns:
         loss value and accuracy
     """
@@ -26,8 +26,8 @@ def eval_loss(net, criterion, loader, use_cuda=False):
     total = 0 # number of samples
     num_batch = len(loader)
 
-    if use_cuda:
-        net.cuda()
+    if device:
+        net = net.to(device)
     net.eval()
 
     with torch.no_grad():
@@ -37,8 +37,8 @@ def eval_loss(net, criterion, loader, use_cuda=False):
                 total += batch_size
                 inputs = Variable(inputs)
                 targets = Variable(targets)
-                if use_cuda:
-                    inputs, targets = inputs.cuda(), targets.cuda()
+                if device:
+                    inputs, targets = inputs.to(device), targets.to(device)
                 outputs = net(inputs)
                 loss = criterion(outputs, targets)
                 total_loss += loss.item()*batch_size
