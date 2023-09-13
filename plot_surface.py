@@ -12,6 +12,8 @@ import os
 import numpy as np
 import torchvision
 import torch.nn as nn
+from torch.backends import cudnn
+
 import evaluation
 import projection as proj
 import net_plotter
@@ -24,6 +26,7 @@ import utils
 from dataloader import load_dataset
 from utils import log_info as log_fn
 from utils import str2bool
+from utils_diffusion import get_alphas_and_betas
 
 # mpirun -n 4 pyshifeng -u ./plot_surface.py --mpi True
 rank2gpu_map = {
@@ -77,7 +80,7 @@ def setup_surface_file(args, surf_file, dir_file):
 
     return surf_file
 
-def crunch(surf_file, net, w, s, d, data_loader, loss_key, acc_key, comm, rank, args):
+def crunch(surf_file, net, w, s, direction, data_loader, loss_key, acc_key, comm, rank, args):
     """
         Calculate the loss values and accuracies of modified models in parallel
         using MPI reduce.
@@ -107,7 +110,7 @@ def crunch(surf_file, net, w, s, d, data_loader, loss_key, acc_key, comm, rank, 
     # stored in 'd') are stored in 'coords'.
     inds, coords, inds_nums = scheduler.get_job_indices(losses, xcoordinates, ycoordinates, comm)
 
-    log_fn('Computing %d values for rank %d' % (len(inds), rank))
+    log_fn(f"Rank{rank}: inds:{len(inds)}({inds[0]}~{inds[-1]}), coords:{len(coords)}, inds_nums:{inds_nums}")
     start_time = time.time()
     total_sync = 0.0
 
@@ -115,6 +118,18 @@ def crunch(surf_file, net, w, s, d, data_loader, loss_key, acc_key, comm, rank, 
     if args.loss_name == 'mse':
         criterion = nn.MSELoss()
 
+    if args.model == 'diffusion_model':
+        beta_schedule = args.diffusion_beta_schedule
+        alpha_arr, ab_arr, beta_arr = get_alphas_and_betas(beta_schedule=beta_schedule)
+        ab_arr = ab_arr.to(args.device)
+        if rank == 0:
+            log_fn(f"diffusion_t         : {args.diffusion_t}")
+            log_fn(f"beta_schedule       : {beta_schedule}")
+            log_fn(f"diffusion_ab_arr    : {len(ab_arr)}")
+            log_fn(f"diffusion_ab_arr[0] : {ab_arr[0]:.6f}")
+            log_fn(f"diffusion_ab_arr[-1]: {ab_arr[-1]:.6f}")
+    else:
+        ab_arr = None
     # Loop over all un-calculated loss values
     ind_cnt = len(inds)
     for idx, ind in enumerate(inds):
@@ -124,13 +139,17 @@ def crunch(surf_file, net, w, s, d, data_loader, loss_key, acc_key, comm, rank, 
         # Load the weights corresponding to those coordinates into the net
         real_net = net.module if isinstance(net, torch.nn.DataParallel) else net
         if args.dir_type == 'weights':
-            net_plotter.set_weights(real_net, w, d, coord)
+            net_plotter.set_weights(real_net, w, direction, coord)
         elif args.dir_type == 'states':
-            net_plotter.set_states(real_net, s, d, coord)
+            net_plotter.set_states(real_net, s, direction, coord)
         else:
             raise ValueError(f"Invalid args.dir_type {args.dir_type}")
 
-        loss, acc = evaluation.eval_loss(net, criterion, data_loader, args.device)
+        if args.model == 'diffusion_model':
+            t = args.diffusion_t
+            loss, acc = evaluation.eval_loss(net, criterion, data_loader, args.device, t, ab_arr)
+        else:
+            loss, acc = evaluation.eval_loss(net, criterion, data_loader, args.device)
 
         # Record the result in the local array
         losses.ravel()[ind] = loss
@@ -156,7 +175,7 @@ def crunch(surf_file, net, w, s, d, data_loader, loss_key, acc_key, comm, rank, 
         # if rank == 0
 
         msg = f"R{rank} {idx:3d}/{ind_cnt}: coord=[{coord[0]:5.2f},{coord[1]:5.2f}], " \
-              f"loss={loss:6.3f}, accu={acc:5.2f}"
+              f"loss={loss:.6f}, accu={acc:5.2f}%"
         if rank == 0:
             elp, eta = utils.get_time_ttl_and_eta(start_time, idx, ind_cnt)
             msg += f", elp:{elp}, eta:{eta}"
@@ -178,6 +197,7 @@ def parse_args():
     parser.add_argument('--cuda', '-c', type=str2bool, default=True, help='use cuda')
     parser.add_argument('--threads', default=2, type=int, help='number of threads')
     parser.add_argument('--batch_size', default=10000, type=int, help='minibatch size')
+    parser.add_argument('--seed', default=123, type=int)
 
     # data parameters
     parser.add_argument('--dataset', default='cifar10', help='cifar10 | imagenet')
@@ -190,24 +210,26 @@ def parse_args():
 
     # model parameters
     parser.add_argument('--model', default='resnet56', help='model name')
-    parser.add_argument('--model_folder', default='', help='the common folder that contains model_file and model_file2')
     parser.add_argument('--model_file', default='./checkpoint/temp/resnet56_sgd_lr=0.1_bs=128_wd=0.0005/model_300.t7')
     parser.add_argument('--model_file2', default='', help='use (model_file2 - model_file) as the xdirection')
     parser.add_argument('--model_file3', default='', help='use (model_file3 - model_file) as the ydirection')
+    parser.add_argument('--model_folder', default='', help='the common folder that contains model_file and model_file2')
     parser.add_argument('--loss_name', '-l', default='crossentropy', help='loss functions: crossentropy | mse')
+    parser.add_argument('--diffusion_t', type=int, default=900)
+    parser.add_argument('--diffusion_beta_schedule', type=str, default='linear')
 
     # direction parameters
     parser.add_argument('--dir_file', default='', help='specify the name or path of direction file')
     parser.add_argument('--dir_type', default='weights', help="direction type: weights | states (including BN's running_mean/var)")
-    parser.add_argument('--x', default='-1:1:51', help='A string with format xmin:x_max:xnum')
+    parser.add_argument('--x', default='-1:1:51', help='A string with format xmin:xmax:xnum')
     parser.add_argument('--y', default='-1:1:51', help='A string with format ymin:ymax:ynum')
     parser.add_argument('--xnorm', default='filter', help='direction normalization: filter | layer | weight')
     parser.add_argument('--ynorm', default='filter', help='direction normalization: filter | layer | weight')
     parser.add_argument('--xignore', default='biasbn', help='ignore bias and BN parameters: biasbn')
     parser.add_argument('--yignore', default='biasbn', help='ignore bias and BN parameters: biasbn')
-    parser.add_argument('--same_dir', type=str2bool, default=False, help='use the same random direction for both x-axis and y-axis')
+    parser.add_argument('--same_dir', type=str2bool, default=False, help='use the same random direction for x y axis')
     parser.add_argument('--idx', default=0, type=int, help='the index for the repeatness experiment')
-    parser.add_argument('--surf_file', default='', help='customize the name of surface file, could be an existing file.')
+    parser.add_argument('--surf_file', default='', help='the name of surface file, could be an existing file.')
 
     # plot parameters
     parser.add_argument('--proj_file', default='', help='the .h5 file contains projected optimization trajectory.')
@@ -220,7 +242,7 @@ def parse_args():
     parser.add_argument('--plot', action='store_true', default=False, help='plot figures after computation')
 
     args = parser.parse_args()
-    torch.manual_seed(123)
+    cudnn.benchmark = True
 
     # --------------------------------------------------------------------------
     # Check plotting resolution
@@ -257,8 +279,23 @@ def main():
     else:
         raise ValueError(f"Not found rank {rank} in rank2gpu_map.")
     if rank == 0:
-        log_fn(f"args.mpi: {args.mpi} ========================")
-    log_fn(f"Rank {rank}: args.gpu_ids:{args.gpu_ids}. args.device:{args.device}. args.ngpu:{args.ngpu}")
+        log_fn(f"======================== args.mpi: {args.mpi} ========================")
+    if rank == 0:
+        log_fn(f"Rank{rank} cwd : {os.getcwd()}")
+        log_fn(f"Rank{rank} args: {args}")
+    log_fn(f"Rank{rank} gpu_ids:{args.gpu_ids}. device:{args.device}. ngpu:{args.ngpu}. pid:{os.getpid()}")
+
+    seed = args.seed  # if seed is 0. then ignore it.
+    log_fn(f"args.seed : {seed}") if rank == 0 else None
+    if seed:
+        log_fn(f"  torch.manual_seed({seed})") if rank == 0 else None
+        log_fn(f"  np.random.seed({seed})") if rank == 0 else None
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+    if seed and torch.cuda.is_available():
+        log_fn(f"  torch.cuda.manual_seed_all({seed})") if rank == 0 else None
+        torch.cuda.manual_seed_all(seed)
+    log_fn(f"final seed: torch.initial_seed(): {torch.initial_seed()}") if rank == 0 else None
 
     # --------------------------------------------------------------------------
     # Load models and extract parameters
@@ -287,6 +324,7 @@ def main():
 
     # load directions
     d = net_plotter.load_directions(dir_file)
+    log_fn(f"Rank{rank}: dir_file: {dir_file}")
     # calculate the cosine similarity of the two directions
     if len(d) == 2 and rank == 0:
         similarity = proj.cal_angle(proj.nplist_to_tensor(d[0]), proj.nplist_to_tensor(d[1]))
