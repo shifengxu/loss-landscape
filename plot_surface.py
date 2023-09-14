@@ -110,7 +110,10 @@ def crunch(surf_file, net, w, s, direction, data_loader, loss_key, acc_key, comm
     # stored in 'd') are stored in 'coords'.
     inds, coords, inds_nums = scheduler.get_job_indices(losses, xcoordinates, ycoordinates, comm)
 
-    log_fn(f"Rank{rank}: inds:{len(inds)}({inds[0]}~{inds[-1]}), coords:{len(coords)}, inds_nums:{inds_nums}")
+    msg = f"Rank{rank}: inds:{len(inds)}"
+    if len(inds) > 0: msg += f"({inds[0]}~{inds[-1]})"
+    msg += f", coords:{len(coords)}, inds_nums:{inds_nums}"
+    log_fn(msg)
     start_time = time.time()
     total_sync = 0.0
 
@@ -239,7 +242,7 @@ def parse_args():
     parser.add_argument('--vlevel', default=0.5, type=float, help='plot contours every vlevel')
     parser.add_argument('--show', action='store_true', default=False, help='show plotted figures')
     parser.add_argument('--log', action='store_true', default=False, help='use log scale for loss values')
-    parser.add_argument('--plot', action='store_true', default=False, help='plot figures after computation')
+    parser.add_argument('--plot', type=str2bool, default=True, help='plot figures after computation')
 
     args = parser.parse_args()
     cudnn.benchmark = True
