@@ -204,10 +204,11 @@ def parse_args():
     parser.add_argument('--threads', default=2, type=int, help='number of threads')
     parser.add_argument('--batch_size', default=1500, type=int, help='minibatch size')
     parser.add_argument('--seed', default=123, type=int)
+    parser.add_argument('--output_dir', type=str, default=".")
 
     # data parameters
     parser.add_argument('--dataset', default='cifar10', help='cifar10 | imagenet')
-    parser.add_argument('--datapath', default='cifar10/data', metavar='DIR', help='path to the dataset')
+    parser.add_argument('--datapath', default='./dataset/cifar10', metavar='DIR', help='path to the dataset')
     parser.add_argument('--raw_data', action='store_true', default=False, help='no data preprocessing')
     parser.add_argument('--data_split', default=1, type=int, help='the number of splits for the dataloader')
     parser.add_argument('--split_idx', default=0, type=int, help='the index of data splits for the dataloader')
@@ -235,8 +236,12 @@ def parse_args():
     # direction parameters
     parser.add_argument('--dir_file', default='', help='specify the name or path of direction file')
     parser.add_argument('--dir_type', default='weights', help="direction type: weights | states (including BN's running_mean/var)")
-    parser.add_argument('--x', default='-1:1:51', help='A string with format xmin:xmax:xnum')
-    parser.add_argument('--y', default='-1:1:51', help='A string with format ymin:ymax:ynum')
+    parser.add_argument('--xmin', type=float, default=-1)
+    parser.add_argument('--xmax', type=float, default=1)
+    parser.add_argument('--xnum', type=int, default=51)
+    parser.add_argument('--ymin', type=float, default=-1)
+    parser.add_argument('--ymax', type=float, default=1)
+    parser.add_argument('--ynum', type=int, default=51)
     parser.add_argument('--xnorm', default='filter', help='direction normalization: filter | layer | weight')
     parser.add_argument('--ynorm', default='filter', help='direction normalization: filter | layer | weight')
     parser.add_argument('--xignore', default='biasbn', help='ignore bias and BN parameters: biasbn')
@@ -256,22 +261,9 @@ def parse_args():
     parser.add_argument('--plot', type=str2bool, default=True, help='plot figures after computation')
 
     args = parser.parse_args()
+    args.x = f"{args.xmin}:{args.xmax}:{args.xnum}"
+    args.y = f"{args.ymin}:{args.ymax}:{args.ynum}"
     cudnn.benchmark = True
-
-    # --------------------------------------------------------------------------
-    # Check plotting resolution
-    # --------------------------------------------------------------------------
-    try:
-        arr = args.x.split(':')
-        args.xmin, args.xmax, args.xnum = float(arr[0]), float(arr[1]), int(arr[2])
-        args.ymin, args.ymax, args.ynum = (None, None, None)
-        if args.y:
-            arr = args.y.split(':')
-            args.ymin, args.ymax, args.ynum = float(arr[0]), float(arr[1]), int(arr[2])
-            assert args.ymin and args.ymax and args.ynum, \
-                'You specified some arguments for the y axis, but not all'
-    except RuntimeError:
-        raise Exception('Improper format for x- or y-coordinates. Try something like -1:1:51')
 
     return args
 
@@ -332,6 +324,12 @@ def main():
     # Setup the direction file and the surface file
     # --------------------------------------------------------------------------
     dir_file = net_plotter.name_direction_file(args) # name the direction file
+    log_fn(f"dir_file old: {dir_file}") if rank == 0 else None
+    basename = os.path.basename(dir_file)
+    dir_file = os.path.join(args.output_dir, basename)
+    log_fn(f"dir_file new: {dir_file}") if rank == 0 else None
+    # switch dir_file to output_dir. then other files (such as surf_file) will be also in output_dir
+
     if rank == 0:
         net_plotter.setup_direction(args, dir_file, net)
 
@@ -355,7 +353,7 @@ def main():
     # --------------------------------------------------------------------------
     # download CIFAR10 if it does not exit
     if rank == 0 and args.dataset == 'cifar10':
-        torchvision.datasets.CIFAR10(root=args.dataset + '/data', train=True, download=True)
+        torchvision.datasets.CIFAR10(root=args.datapath, train=True, download=True)
 
     mpi.barrier(comm)
 

@@ -40,7 +40,7 @@ def load_dataset(dataset='cifar10', datapath='cifar10/data', batch_size=128, \
         normalize = transforms.Normalize(mean=[x/255.0 for x in [125.3, 123.0, 113.9]],
                                          std=[x/255.0 for x in [63.0, 62.1, 66.7]])
 
-        data_folder = get_relative_path(datapath)
+        data_folder = datapath
         if raw_data:
             transform = transforms.Compose([
                 transforms.ToTensor()
