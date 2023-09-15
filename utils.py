@@ -20,7 +20,7 @@ def log_info(*args):
     # MPI is multiple-process, so need to flush every time.
     # If use print(...), and there are 4 processes, the output will be messy,
     # and different lines mixed together in output.
-    sys.stdout.write(f"[{dtstr}] {args[0]}\r\n")
+    sys.stdout.write(f"[{dtstr}] {args[0]}\n")
 
 def get_time_ttl_and_eta(time_start, elapsed_iter, total_iter):
     """

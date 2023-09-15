@@ -2,7 +2,6 @@
     2D plotting functions
 """
 
-from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import pyplot as plt
 from matplotlib import cm
 import h5py
@@ -14,6 +13,7 @@ import seaborn as sns
 def plot_2d_contour(surf_file, surf_name='train_loss', vmin=0.1, vmax=10, vlevel=0.5, show=False):
     """Plot 2D contour map and 3D surface."""
 
+    print("surf_file: " + surf_file)
     f = h5py.File(surf_file, 'r')
     x = np.array(f['xcoordinates'][:])
     y = np.array(f['ycoordinates'][:])
@@ -25,16 +25,18 @@ def plot_2d_contour(surf_file, surf_name='train_loss', vmin=0.1, vmax=10, vlevel
         Z = 100 - np.array(f[surf_name][:])
     else:
         raise '%s is not found in %s' % (surf_name, surf_file)
+    f.close()
 
     print('------------------------------------------------------------------')
     print('plot_2d_contour')
     print('------------------------------------------------------------------')
-    print("loading surface file: " + surf_file)
     print('len(xcoordinates): %d   len(ycoordinates): %d' % (len(x), len(y)))
-    print('max(%s) = %f \t min(%s) = %f' % (surf_name, np.max(Z), surf_name, np.min(Z)))
-    print(Z)
+    print(f"surf_name: {surf_name}")
+    print(f"len(Z)   : {len(Z)}")
+    print(f"max(Z)   : {np.max(Z)}")
+    print(f"min(Z)   : {np.min(Z)}")
 
-    if (len(x) <= 1 or len(y) <= 1):
+    if len(x) <= 1 or len(y) <= 1:
         print('The length of coordinates is not enough for plotting contours')
         return
 
@@ -44,36 +46,38 @@ def plot_2d_contour(surf_file, surf_name='train_loss', vmin=0.1, vmax=10, vlevel
     fig = plt.figure()
     CS = plt.contour(X, Y, Z, cmap='summer', levels=np.arange(vmin, vmax, vlevel))
     plt.clabel(CS, inline=1, fontsize=8)
-    fig.savefig(surf_file + '_' + surf_name + '_2dcontour' + '.pdf', dpi=300,
-                bbox_inches='tight', format='pdf')
+    f_path1 = surf_file + '_' + surf_name + '_2_d_contour' + '.pdf'
+    fig.savefig(f_path1, dpi=300, bbox_inches='tight', format='pdf')
 
     fig = plt.figure()
-    print(surf_file + '_' + surf_name + '_2dcontourf' + '.pdf')
     CS = plt.contourf(X, Y, Z, cmap='summer', levels=np.arange(vmin, vmax, vlevel))
-    fig.savefig(surf_file + '_' + surf_name + '_2dcontourf' + '.pdf', dpi=300,
-                bbox_inches='tight', format='pdf')
+    f_path2 = surf_file + '_' + surf_name + '_2d_contourf' + '.pdf'
+    fig.savefig(f_path2, dpi=300, bbox_inches='tight', format='pdf')
+
+    print(f" Plot 2D contour: {f_path1}")
+    print(f" Plot 2D contour: {f_path2}")
 
     # --------------------------------------------------------------------
     # Plot 2D heatmaps
     # --------------------------------------------------------------------
-    fig = plt.figure()
     sns_plot = sns.heatmap(Z, cmap='viridis', cbar=True, vmin=vmin, vmax=vmax,
                            xticklabels=False, yticklabels=False)
     sns_plot.invert_yaxis()
-    sns_plot.get_figure().savefig(surf_file + '_' + surf_name + '_2dheat.pdf',
-                                  dpi=300, bbox_inches='tight', format='pdf')
+    f_path = surf_file + '_' + surf_name + '_2d_heat.pdf'
+    print(f"Plot 2D heatmaps: {f_path}")
+    sns_plot.get_figure().savefig(f_path, dpi=300, bbox_inches='tight', format='pdf')
 
     # --------------------------------------------------------------------
     # Plot 3D surface
     # --------------------------------------------------------------------
     fig = plt.figure()
-    ax = Axes3D(fig)
+    ax = fig.add_subplot(1, 1, 1, projection='3d')
     surf = ax.plot_surface(X, Y, Z, cmap=cm.coolwarm, linewidth=0, antialiased=False)
     fig.colorbar(surf, shrink=0.5, aspect=5)
-    fig.savefig(surf_file + '_' + surf_name + '_3dsurface.pdf', dpi=300,
-                bbox_inches='tight', format='pdf')
+    f_path = surf_file + '_' + surf_name + '_3d_surface.pdf'
+    print(f"Plot 3D surface: {f_path}")
+    fig.savefig(f_path, dpi=300, bbox_inches='tight', format='pdf')
 
-    f.close()
     if show: plt.show()
 
 

@@ -15,6 +15,7 @@ import torch.nn as nn
 from torch.backends import cudnn
 
 import evaluation
+import h52vtp
 import projection as proj
 import net_plotter
 import plot_2D
@@ -34,6 +35,8 @@ rank2gpu_map = {
     1: [5],
     2: [6],
     3: [7],
+    4: [2],
+    5: [3],
 }
 
 def name_surface_file(args, dir_file):
@@ -199,7 +202,7 @@ def parse_args():
     parser.add_argument('--mpi', '-m', type=str2bool, default=False, help='use mpi')
     parser.add_argument('--cuda', '-c', type=str2bool, default=True, help='use cuda')
     parser.add_argument('--threads', default=2, type=int, help='number of threads')
-    parser.add_argument('--batch_size', default=10000, type=int, help='minibatch size')
+    parser.add_argument('--batch_size', default=1500, type=int, help='minibatch size')
     parser.add_argument('--seed', default=123, type=int)
 
     # data parameters
@@ -210,10 +213,18 @@ def parse_args():
     parser.add_argument('--split_idx', default=0, type=int, help='the index of data splits for the dataloader')
     parser.add_argument('--trainloader', default='', help='path to the dataloader with random labels')
     parser.add_argument('--testloader', default='', help='path to the testloader with random labels')
+    parser.add_argument('--rank0gpu_ids', nargs='*', type=int, default=[])
+    parser.add_argument('--rank1gpu_ids', nargs='*', type=int, default=[])
+    parser.add_argument('--rank2gpu_ids', nargs='*', type=int, default=[])
+    parser.add_argument('--rank3gpu_ids', nargs='*', type=int, default=[])
+    parser.add_argument('--rank4gpu_ids', nargs='*', type=int, default=[])
+    parser.add_argument('--rank5gpu_ids', nargs='*', type=int, default=[])
 
     # model parameters
-    parser.add_argument('--model', default='resnet56', help='model name')
-    parser.add_argument('--model_file', default='./checkpoint/temp/resnet56_sgd_lr=0.1_bs=128_wd=0.0005/model_300.t7')
+    parser.add_argument('--model', default='diffusion_model', help='model name')
+    parser.add_argument('--model_file', default='./checkpoint/cifar10/diffusion_model/ema-cifar10-model-790000.ckpt')
+    # parser.add_argument('--model', default='resnet56', help='model name')
+    # parser.add_argument('--model_file', default='./checkpoint/temp/resnet56_sgd_lr=0.1_bs=128_wd=0.0005/model_300.t7')
     parser.add_argument('--model_file2', default='', help='use (model_file2 - model_file) as the xdirection')
     parser.add_argument('--model_file3', default='', help='use (model_file3 - model_file) as the ydirection')
     parser.add_argument('--model_folder', default='', help='the common folder that contains model_file and model_file2')
@@ -269,6 +280,12 @@ def main():
     # --------------------------------------------------------------------------
     # Environment setup
     # --------------------------------------------------------------------------
+    rank2gpu_map[0] = args.rank0gpu_ids or rank2gpu_map[0]
+    rank2gpu_map[1] = args.rank1gpu_ids or rank2gpu_map[1]
+    rank2gpu_map[2] = args.rank2gpu_ids or rank2gpu_map[2]
+    rank2gpu_map[3] = args.rank3gpu_ids or rank2gpu_map[3]
+    rank2gpu_map[4] = args.rank4gpu_ids or rank2gpu_map[4]
+    rank2gpu_map[5] = args.rank5gpu_ids or rank2gpu_map[5]
     if args.mpi:
         comm = mpi.setup_MPI()
         rank, nproc = comm.Get_rank(), comm.Get_size()
@@ -367,6 +384,7 @@ def main():
             plot_2D.plot_contour_trajectory(surf_file, dir_file, args.proj_file, 'train_loss', args.show)
         elif args.y:
             plot_2D.plot_2d_contour(surf_file, 'train_loss', args.vmin, args.vmax, args.vlevel, args.show)
+            h52vtp.h5_to_vtp(surf_file, 'train_loss', log=True, zmax=-1, interp=-1)
         else:
             plot_1D.plot_1d_loss_err(surf_file, args.xmin, args.xmax, args.loss_max, args.log, args.show)
 # main()
