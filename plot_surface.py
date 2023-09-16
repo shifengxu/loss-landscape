@@ -83,7 +83,7 @@ def setup_surface_file(args, surf_file, dir_file):
 
     return surf_file
 
-def crunch(surf_file, net, w, s, direction, data_loader, loss_key, acc_key, comm, rank, args):
+def crunch(surf_file, net, w, net_copy, direction, data_loader, loss_key, acc_key, comm, rank, args):
     """
         Calculate the loss values and accuracies of modified models in parallel
         using MPI reduce.
@@ -147,7 +147,7 @@ def crunch(surf_file, net, w, s, direction, data_loader, loss_key, acc_key, comm
         if args.dir_type == 'weights':
             net_plotter.set_weights(real_net, w, direction, coord)
         elif args.dir_type == 'states':
-            net_plotter.set_states(real_net, s, direction, coord)
+            net_plotter.set_states(real_net, net_copy, direction, coord)
         else:
             raise ValueError(f"Invalid args.dir_type {args.dir_type}")
 
@@ -204,7 +204,7 @@ def parse_args():
     parser.add_argument('--threads', default=2, type=int, help='number of threads')
     parser.add_argument('--batch_size', default=1500, type=int, help='minibatch size')
     parser.add_argument('--seed', default=123, type=int)
-    parser.add_argument('--output_dir', type=str, default=".")
+    parser.add_argument('--output_dir', type=str, default="./tmpdir")
 
     # data parameters
     parser.add_argument('--dataset', default='cifar10', help='cifar10 | imagenet')
@@ -267,8 +267,42 @@ def parse_args():
 
     return args
 
-def main():
-    args = parse_args()
+def set_seed(args, rank):
+    seed = args.seed  # if seed is 0. then ignore it.
+    log_fn(f"args.seed : {seed}") if rank == 0 else None
+    if seed:
+        log_fn(f"  torch.manual_seed({seed})") if rank == 0 else None
+        log_fn(f"  np.random.seed({seed})") if rank == 0 else None
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+    if seed and torch.cuda.is_available():
+        log_fn(f"  torch.cuda.manual_seed_all({seed})") if rank == 0 else None
+        torch.cuda.manual_seed_all(seed)
+    log_fn(f"final seed: torch.initial_seed(): {torch.initial_seed()}") if rank == 0 else None
+
+def get_data_loaders(args, rank, comm):
+    # --------------------------------------------------------------------------
+    # Setup dataloader
+    # --------------------------------------------------------------------------
+    # download CIFAR10 if it does not exit
+    if rank == 0 and args.dataset == 'cifar10':
+        torchvision.datasets.CIFAR10(root=args.datapath, train=True, download=True)
+
+    mpi.barrier(comm)
+
+    if rank == 0:
+        log_fn(f"load_dataset()...")
+        log_fn(f"  args.dataset   : {args.dataset}")
+        log_fn(f"  args.datapath  : {args.datapath}")
+        log_fn(f"  args.batch_size: {args.batch_size}")
+        log_fn(f"  args.threads   : {args.threads}")
+    trainloader, testloader = load_dataset(args.dataset, args.datapath,
+                                           args.batch_size, args.threads, args.raw_data,
+                                           args.data_split, args.split_idx,
+                                           args.trainloader, args.testloader)
+    return trainloader, testloader
+
+def get_mpi_rank_comm(args):
     # --------------------------------------------------------------------------
     # Environment setup
     # --------------------------------------------------------------------------
@@ -296,29 +330,31 @@ def main():
         log_fn(f"Rank{rank} cwd : {os.getcwd()}")
         log_fn(f"Rank{rank} args: {args}")
     log_fn(f"Rank{rank} gpu_ids:{args.gpu_ids}. device:{args.device}. ngpu:{args.ngpu}. pid:{os.getpid()}")
+    return rank, comm
 
-    seed = args.seed  # if seed is 0. then ignore it.
-    log_fn(f"args.seed : {seed}") if rank == 0 else None
-    if seed:
-        log_fn(f"  torch.manual_seed({seed})") if rank == 0 else None
-        log_fn(f"  np.random.seed({seed})") if rank == 0 else None
-        torch.manual_seed(seed)
-        np.random.seed(seed)
-    if seed and torch.cuda.is_available():
-        log_fn(f"  torch.cuda.manual_seed_all({seed})") if rank == 0 else None
-        torch.cuda.manual_seed_all(seed)
-    log_fn(f"final seed: torch.initial_seed(): {torch.initial_seed()}") if rank == 0 else None
-
+def get_model(args, rank):
     # --------------------------------------------------------------------------
     # Load models and extract parameters
     # --------------------------------------------------------------------------
     net = model_loader.load(args.dataset, args.model, args.model_file)
-    w = net_plotter.get_weights(net) # initial parameters
-    s = copy.deepcopy(net.state_dict()) # deepcopy since state_dict are references
+    weight_copy = net_plotter.get_weights(net) # initial parameters
+    net_copy = copy.deepcopy(net.state_dict()) # deepcopy since state_dict are references
     if args.ngpu > 1:
         # data parallel with multiple GPUs on a single node
         net = nn.DataParallel(net, device_ids=args.gpu_ids)
         log_fn(f"Rank {rank}: net = nn.DataParallel(net, device_ids={args.gpu_ids})")
+    return net, weight_copy, net_copy
+
+def main():
+    args = parse_args()
+
+    rank, comm = get_mpi_rank_comm(args)
+
+    set_seed(args, rank)
+
+    trainloader, testloader = get_data_loaders(args, rank, comm)
+
+    net, w, net_copy = get_model(args, rank)
 
     # --------------------------------------------------------------------------
     # Setup the direction file and the surface file
@@ -349,30 +385,10 @@ def main():
         log_fn('cosine similarity between x-axis and y-axis: %f' % similarity)
 
     # --------------------------------------------------------------------------
-    # Setup dataloader
-    # --------------------------------------------------------------------------
-    # download CIFAR10 if it does not exit
-    if rank == 0 and args.dataset == 'cifar10':
-        torchvision.datasets.CIFAR10(root=args.datapath, train=True, download=True)
-
-    mpi.barrier(comm)
-
-    if rank == 0:
-        log_fn(f"load_dataset()...")
-        log_fn(f"  args.dataset   : {args.dataset}")
-        log_fn(f"  args.datapath  : {args.datapath}")
-        log_fn(f"  args.batch_size: {args.batch_size}")
-        log_fn(f"  args.threads   : {args.threads}")
-    trainloader, testloader = load_dataset(args.dataset, args.datapath,
-                                           args.batch_size, args.threads, args.raw_data,
-                                           args.data_split, args.split_idx,
-                                           args.trainloader, args.testloader)
-
-    # --------------------------------------------------------------------------
     # Start the computation
     # --------------------------------------------------------------------------
-    crunch(surf_file, net, w, s, d, trainloader, 'train_loss', 'train_acc', comm, rank, args)
-    # crunch(surf_file, net, w, s, d, testloader, 'test_loss', 'test_acc', comm, rank, args)
+    crunch(surf_file, net, w, net_copy, d, trainloader, 'train_loss', 'train_acc', comm, rank, args)
+    # crunch(surf_file, net, w, net_copy, d, testloader, 'test_loss', 'test_acc', comm, rank, args)
 
     # --------------------------------------------------------------------------
     # Plot figures

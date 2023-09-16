@@ -167,7 +167,7 @@ def ignore_biasbn(directions):
 ################################################################################
 def create_target_direction(net, net2, dir_type='states'):
     """
-        Setup a target direction from one model to the other
+        Set up a target direction from one model to the other
 
         Args:
           net: the source model
@@ -189,13 +189,15 @@ def create_target_direction(net, net2, dir_type='states'):
         s = net.state_dict()
         s2 = net2.state_dict()
         direction = get_diff_states(s, s2)
+    else:
+        raise ValueError(f"Invalid dir_type: {dir_type}")
 
     return direction
 
 
 def create_random_direction(net, dir_type='weights', ignore='biasbn', norm='filter'):
     """
-        Setup a random (normalized) direction with the same dimension as
+        Set up a random (normalized) direction with the same dimension as
         the weights or states.
 
         Args:
@@ -218,14 +220,16 @@ def create_random_direction(net, dir_type='weights', ignore='biasbn', norm='filt
         states = net.state_dict() # a dict of parameters, including BN's running mean/var.
         direction = get_random_states(states)
         normalize_directions_for_states(direction, states, norm, ignore)
+    else:
+        raise ValueError(f"Invalid dir_type: {dir_type}")
 
     return direction
 
 
 def setup_direction(args, dir_file, net):
     """
-        Setup the h5 file to store the directions.
-        - xdirection, ydirection: The pertubation direction added to the mdoel.
+        Set up the h5 file to store the directions.
+        - xdirection, ydirection: The perturbation direction added to the model.
           The direction is a list of tensors.
     """
     print('-------------------------------------------------------------------')
@@ -240,12 +244,12 @@ def setup_direction(args, dir_file, net):
         f = h5py.File(dir_file, 'r')
         if (args.y and 'ydirection' in f.keys()) or 'xdirection' in f.keys():
             f.close()
-            print ("%s is already setted up" % dir_file)
+            print("%s is already set up" % dir_file)
             return
         f.close()
 
     # Create the plotting directions
-    f = h5py.File(dir_file,'w') # create file, fail if exists
+    f = h5py.File(dir_file, 'w') # create file, fail if exists
     if not args.dir_file:
         print("Setting up the plotting directions...")
         if args.model_file2:
@@ -266,7 +270,7 @@ def setup_direction(args, dir_file, net):
             h5_util.write_list(f, 'ydirection', ydirection)
 
     f.close()
-    print ("direction file created: %s" % dir_file)
+    print("direction file created: %s" % dir_file)
 
 
 def name_direction_file(args):
@@ -292,7 +296,7 @@ def name_direction_file(args):
             prefix = commonprefix([file1, file2])
             prefix = prefix[0:prefix.rfind('/')]
             dir_file += file1[:file1.rfind('/')] + '_' + file1[file1.rfind('/')+1:] + '_' + \
-                       file2[len(prefix)+1: file2.rfind('/')] + '_' + file2[file2.rfind('/')+1:]
+                file2[len(prefix)+1: file2.rfind('/')] + '_' + file2[file2.rfind('/')+1:]
     else:
         dir_file += file1
 
@@ -307,10 +311,10 @@ def name_direction_file(args):
         if file3:
             assert exists(file3), "%s does not exist!" % file3
             if file1[:file1.rfind('/')] == file3[:file3.rfind('/')]:
-               dir_file += file3
+                dir_file += file3
             else:
-               # model_file and model_file3 are under different folders
-               dir_file += file3[:file3.rfind('/')] + '_' + file3[file3.rfind('/')+1:]
+                # model_file and model_file3 are under different folders
+                dir_file += file3[:file3.rfind('/')] + '_' + file3[file3.rfind('/')+1:]
         else:
             if args.yignore:
                 dir_file += '_yignore=' + args.yignore
