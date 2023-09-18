@@ -253,9 +253,6 @@ def parse_args():
     # plot parameters
     parser.add_argument('--proj_file', default='', help='the .h5 file contains projected optimization trajectory.')
     parser.add_argument('--loss_max', default=5, type=float, help='Maximum value to show in 1D plot')
-    parser.add_argument('--vmax', default=10, type=float, help='Maximum value to map')
-    parser.add_argument('--vmin', default=0.1, type=float, help='Minimum value to map')
-    parser.add_argument('--vlevel', default=0.5, type=float, help='plot contours every vlevel')
     parser.add_argument('--show', action='store_true', default=False, help='show plotted figures')
     parser.add_argument('--log', action='store_true', default=False, help='use log scale for loss values')
     parser.add_argument('--plot', type=str2bool, default=True, help='plot figures after computation')
@@ -397,7 +394,7 @@ def main():
         if args.y and args.proj_file:
             plot_2D.plot_contour_trajectory(surf_file, dir_file, args.proj_file, 'train_loss', args.show)
         elif args.y:
-            plot_2D.plot_2d_contour(surf_file, 'train_loss', args.vmin, args.vmax, args.vlevel, args.show)
+            plot_2D.plot_2d_contour(surf_file, 'train_loss', args.show)
             h52vtp.h5_to_vtp(surf_file, 'train_loss', log=True, zmax=-1, interp=-1)
         else:
             plot_1D.plot_1d_loss_err(surf_file, args.xmin, args.xmax, args.loss_max, args.log, args.show)

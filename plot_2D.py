@@ -10,7 +10,7 @@ import numpy as np
 from os.path import exists
 import seaborn as sns
 
-def plot_2d_contour(surf_file, surf_name='train_loss', vmin=0.1, vmax=10, vlevel=0.5, show=False):
+def plot_2d_contour(surf_file, surf_name='train_loss', show=False):
     """Plot 2D contour map and 3D surface."""
 
     print("surf_file: " + surf_file)
@@ -27,14 +27,18 @@ def plot_2d_contour(surf_file, surf_name='train_loss', vmin=0.1, vmax=10, vlevel
         raise '%s is not found in %s' % (surf_name, surf_file)
     f.close()
 
+    vmin, vmax = np.min(Z), np.max(Z)
     print('------------------------------------------------------------------')
     print('plot_2d_contour')
     print('------------------------------------------------------------------')
     print('len(xcoordinates): %d   len(ycoordinates): %d' % (len(x), len(y)))
     print(f"surf_name: {surf_name}")
     print(f"len(Z)   : {len(Z)}")
-    print(f"max(Z)   : {np.max(Z)}")
-    print(f"min(Z)   : {np.min(Z)}")
+    print(f"max(Z)   : {vmax}")
+    print(f"min(Z)   : {vmin}")
+    vmin *= 0.8 # adjust the min and max value, then the plot image looks better
+    vmax *= 1.2
+    vlevel = (vmax - vmin) / 20
 
     if len(x) <= 1 or len(y) <= 1:
         print('The length of coordinates is not enough for plotting contours')
@@ -207,6 +211,6 @@ if __name__ == '__main__':
     elif exists(args.proj_file) and exists(args.dir_file):
         plot_trajectory(args.proj_file, args.dir_file, args.show)
     elif exists(args.surf_file):
-        plot_2d_contour(args.surf_file, args.surf_name, args.vmin, args.vmax, args.vlevel, args.show)
+        plot_2d_contour(args.surf_file, args.surf_name, args.show)
     else:
         print(f"not exist: {args.surf_file}")
